@@ -1,5 +1,3 @@
-# --- START OF FILE SimulatePortfolio.py ---
-
 import pandas as pd
 from datetime import timedelta, datetime
 from ipywidgets import interact, SelectionSlider, fixed
@@ -48,6 +46,7 @@ class PortfolioSimulator:
             .sort_values(by=['release_date'])
         
         self.data.dropna(subset=['release_date', 'ticker'], inplace=True)
+        print(self.data)
 
         _start_date_obj = None
         if start_date is not None:
@@ -194,47 +193,76 @@ class PortfolioSimulator:
 
             operations_on_this_date = self.data[self.data['release_date'] == port_date]
             
-            for _, op_row in operations_on_this_date.iterrows():
-                this_ticker = op_row['ticker']
-                operation_signal = op_row['prediction']
-                
-                if this_ticker not in self.tickers:
-                    continue
+            if not operations_on_this_date.empty:
+            # Group operations by ticker to aggregate signals
+                for ticker, group in operations_on_this_date.groupby('ticker'):
+                    
+                    if ticker not in self.tickers:
+                        continue
 
-                qty_col_name = 'Quantity_' + this_ticker
-                price_col_name = 'Price_' + this_ticker
-                
-                if price_col_name not in self.portfolio.columns:
-                    print(f"Warning: Price column {price_col_name} missing in portfolio for date {port_date}. Skipping operation.")
-                    continue
+                    signal_map = {'buy': 1, 'sell': -1, 'do_nothing': 0}
+                    numeric_signals = group['prediction'].map(signal_map).fillna(0)
+                    
+                    net_sentiment_score = numeric_signals.mean()
+                    final_quantity_change = int(net_sentiment_score * self.transaction)
+                    
+                    qty_col_name = 'Quantity_' + ticker
+                    price_col_name = 'Price_' + ticker
 
-                transaction_price = self.portfolio.loc[i, price_col_name]
-                
-                if pd.isna(transaction_price) or transaction_price == 0:
-                    self.portfolio.loc[i, 'Operation'] = operation_signal 
-                    print(f"Warning: Transaction price for {this_ticker} on {port_date} is {transaction_price}. Skipping transaction part of operation '{operation_signal}'.")
-                    continue
+                    if price_col_name not in self.portfolio.columns:
+                        print(f"Warning: Price column {price_col_name} missing in portfolio for date {port_date}. Skipping operation.")
+                        continue
 
-                quantity_change = 0
-                current_cash_on_date = self.portfolio.loc[i, 'Cash']
-                current_qty_on_date = self.portfolio.loc[i, qty_col_name]
+                    transaction_price = self.portfolio.loc[i, price_col_name]
+                    
+                    if pd.isna(transaction_price) or transaction_price == 0:
+                        self.portfolio.loc[i, 'Operation'] = f"net_signal_{net_sentiment_score:.2f}_no_price"
+                        print(f"Warning: Transaction price for {ticker} on {port_date} is {transaction_price}. Skipping transaction part.")
+                        continue
 
-                if operation_signal == 'buy':
-                    if current_cash_on_date >= self.transaction * transaction_price:
-                        quantity_change = self.transaction
-                        current_cash_on_date -= quantity_change * transaction_price
-                    # else: Insufficient cash, do nothing with quantities
-                elif operation_signal == 'sell':
-                    if current_qty_on_date >= self.transaction:
-                        quantity_change = -self.transaction
-                        current_cash_on_date -= quantity_change * transaction_price # cash increases
-                    # else: Insufficient stocks, do nothing with quantities
-                
-                self.portfolio.loc[i, qty_col_name] = current_qty_on_date + quantity_change
-                self.portfolio.loc[i, 'Cash'] = current_cash_on_date
-                self.portfolio.loc[i, 'Operation'] = operation_signal # Record the signal
+                    # Get current cash and quantity ON THIS DATE (might have been updated by another ticker)
+                    current_cash_on_date = self.portfolio.loc[i, 'Cash']
+                    current_qty_on_date = self.portfolio.loc[i, qty_col_name]
+                    
+                    final_operation_str = "net_do_nothing"
+
+                    if final_quantity_change > 0: # Net buy signal
+                        cost = final_quantity_change * transaction_price
+                        if current_cash_on_date >= cost:
+                            current_cash_on_date -= cost
+                            current_qty_on_date += final_quantity_change
+                            final_operation_str = "net_buy"
+                        else:
+                            # Optional: If cash is insufficient, you could buy a smaller amount
+                            # affordable_qty = int(current_cash_on_date / transaction_price)
+                            # current_cash_on_date -= affordable_qty * transaction_price
+                            # current_qty_on_date += affordable_qty
+                            # final_operation_str = "partial_net_buy"
+                            pass # Or simply do nothing if cash is not enough for the full amount
+
+                    elif final_quantity_change < 0: # Net sell signal
+                        # quantity is negative, so make it positive for calculation
+                        qty_to_sell = abs(final_quantity_change)
+                        if current_qty_on_date >= qty_to_sell:
+                            proceeds = qty_to_sell * transaction_price
+                            current_cash_on_date += proceeds
+                            current_qty_on_date -= qty_to_sell
+                            final_operation_str = "net_sell"
+                        else:
+                            # Optional: Sell all available shares if less than requested
+                            # proceeds = current_qty_on_date * transaction_price
+                            # current_cash_on_date += proceeds
+                            # current_qty_on_date = 0
+                            # final_operation_str = "partial_net_sell"
+                            pass # Or do nothing if shares are not enough
+                    
+                    # Update the portfolio state for this date and ticker
+                    self.portfolio.loc[i, qty_col_name] = current_qty_on_date
+                    self.portfolio.loc[i, 'Cash'] = current_cash_on_date
+                    # Record the aggregated operation and score
+                    self.portfolio.loc[i, 'Operation'] = f"{final_operation_str} ({net_sentiment_score:.2f})"
         
-        self.portfolio.ffill(inplace=True) 
+        # self.portfolio.ffill(inplace=True) 
 
 
     def compute_total(self):
@@ -469,4 +497,3 @@ class PortfolioSimulator:
             print(display_content[i:i + line_width])
         print("----------------------------------------------------------------\n")
 
-# --- END OF FILE SimulatePortfolio.py ---

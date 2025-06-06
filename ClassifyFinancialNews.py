@@ -203,9 +203,6 @@ class FinancialNewsClassifier:
                 print(f'Early stopping triggered after {epoch + 1} epochs.')
                 break
         
-        # Save confusion matrix for the best model (or last model if no improvement)
-        # For simplicity, we'll use the predictions from the last validation run
-        # Ideally, load the best model and re-predict on val set if early stopping occurred before the last epoch.
         
         conf_mat_df = pd.DataFrame(
             confusion_matrix(val_true, val_preds, labels=list(self.label_map.values())),
@@ -283,9 +280,4 @@ class FinancialNewsClassifier:
         self.predictions_df = self.labeled_news[['id', 'content', 'buy', 'sell', 'do_nothing', 'is_validation']].copy()
         self.predictions_df['prediction'] = predicted_labels_str
         
-        return predicted_labels_str # Return the list of string labels for convenience
-
-    # The request_learning_rate from ktrain is not directly available.
-    # One might implement a LR range test manually or use libraries like `torch_lr_finder`.
-    # For simplicity, we'll skip this for now.
-# --- END OF FILE ClassifyFinancialNews.py ---
+        return predicted_labels_str 
