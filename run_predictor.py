@@ -2,16 +2,17 @@
 
 import pandas as pd
 import matplotlib.pyplot as plt
-# import numpy as np 
+import numpy as np 
 from sklearn.metrics import confusion_matrix, f1_score, accuracy_score, matthews_corrcoef
 import sys
 from pathlib import Path
 
-PROJECT_ROOT = Path(__file__).resolve().parent
+
+PROJECT_ROOT = Path('__file__').resolve().parent
 sys.path.append(str(PROJECT_ROOT))
 
 from main import FinancialNewsPredictor
-
+from ModelEnsemble import ModelComparison, EnsembleLearning
 pd.set_option('display.max_colwidth', None)
 pd.set_option('display.max_columns', None)
 pd.set_option('display.width', 1000)
@@ -46,12 +47,17 @@ def run_financial_news_predictor_pipeline():
 
     classifier_batch_size = 32
     classifier_validation_size = 0.2
-    classifier_split_type = 'time_series'
+    classifier_split_type = 'random'
 
-    training_epochs = 15
-    training_learning_rate = 1e-5
+    training_epochs = 10
+    training_learning_rate = 5e-6
     training_early_stopping_patience = 3
 
+    enable_model_comparison = True  # 是否启用多模型对比
+    enable_ensemble_learning = True  # 是否启用集成学习
+    comparison_test_size = 0.2
+    comparison_random_state = 42
+    
     sim_start_date = '2019-01-01' 
     sim_end_date = '2020-01-01'
     # If DEFAULT_TICKER_FOR_NEWS is 'MSFT', sim_selection will be ['MSFT'].
@@ -248,6 +254,63 @@ def run_financial_news_predictor_pipeline():
             print("No validation data or required columns found in predictions to calculate metrics.")
     else:
         print("No predictions available to calculate metrics.")
+
+#------------------
+    # --- 9.1多模型对比 ---
+    if enable_model_comparison:
+        print(f"\n--- 9.5. Multi-Model Comparison ---")
+        try:
+            model_comparison = predictor.compare_models(
+                test_size=comparison_test_size,
+                random_state=comparison_random_state
+            )
+            if model_comparison is not None:
+                print("Model comparison completed successfully.")
+                
+                #基础模型的性能总结
+                print("\n=== Base Models Performance Summary ===")
+                for name, result in model_comparison.results.items():
+                    print(f"{name}:")
+                    print(f"  - Accuracy: {result['accuracy']:.4f}")
+                    print(f"  - F1-weighted: {result['f1_weighted']:.4f}")
+                    print(f"  - CV Mean: {result['cv_mean']:.4f} (±{result['cv_std']:.4f})")
+            else:
+                print("Model comparison returned None. Check logs for errors.")
+                enable_ensemble_learning = False 
+        except Exception as e:
+            print(f"Error during model comparison: {e}")
+            enable_ensemble_learning = False  
+
+    # --- 9.2 集成学习 ---
+    if enable_ensemble_learning:
+        print(f"\n--- 9.6. Ensemble Learning ---")
+        try:
+            ensemble_learning = predictor.create_ensemble_models()
+            if ensemble_learning is not None:
+                print("Ensemble learning completed successfully.")
+                
+                #打印集成模型的性能总结
+                print("\n=== Ensemble Models Performance Summary ===")
+                for name, result in ensemble_learning.ensemble_results.items():
+                    print(f"{name}:")
+                    print(f"  - Accuracy: {result['accuracy']:.4f}")
+                    print(f"  - F1-weighted: {result['f1_weighted']:.4f}")
+                
+                #显示最佳模型信息
+                all_models_performance = {}
+                for name, result in ensemble_learning.base_models_results.items():
+                    all_models_performance[f'Base_{name}'] = result['accuracy']
+                for name, result in ensemble_learning.ensemble_results.items():
+                    all_models_performance[f'Ensemble_{name}'] = result['accuracy']
+                
+                best_model_name = max(all_models_performance.items(), key=lambda x: x[1])[0]
+                best_accuracy = all_models_performance[best_model_name]
+                print(f"\n=== Best Model: {best_model_name} (Accuracy: {best_accuracy:.4f}) ===")
+            else:
+                print("Ensemble learning returned None. Check logs for errors.")
+        except Exception as e:
+            print(f"Error during ensemble learning: {e}")
+#------------------------------------------------------------
 
     print(f"\n--- 10. Simulating Portfolio ---")
     try:

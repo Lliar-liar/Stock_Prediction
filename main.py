@@ -1,5 +1,5 @@
 # --- START OF FILE main.py ---
-
+import numpy as np
 import pandas as pd
 import datetime
 from pathlib import Path
@@ -397,7 +397,136 @@ class FinancialNewsPredictor:
             confusion_matrix_save_path=confusion_matrix_path
         )
 
+#------------------------------------------
+    def compare_models(self, test_size=0.2, random_state=42):
+        """
+        使用多种模型进行对比分析
+        """
+        if not hasattr(self, 'directory_model') or self.directory_model is None:
+            print("Model directory not set. Creating classifier first.")
+            self.create_classifier()
+            if not hasattr(self, 'directory_model') or self.directory_model is None:
+                print("Cannot compare models: Model directory creation failed.")
+                return
+    
+    #数据
+        if self.data is None or self.data.empty:
+            print("No data available for model comparison.")
+            return
+    
+    # 检查必要的列
+        required_cols = ['content', 'buy', 'sell', 'do_nothing']
+        if not all(col in self.data.columns for col in required_cols):
+            print(f"Missing required columns for model comparison. Required: {required_cols}")
+            return
+    
+    # 准备特征和标签
+        X = self.data['content'].values
+    
+    # 将多标签转换为单一标签
+        y = []
+        for idx, row in self.data.iterrows():
+            if row['buy'] == 1:
+                y.append(0)  # 买入
+            elif row['sell'] == 1:
+                y.append(1)  # 卖出
+            else:
+                y.append(2)  # 不操作
+        y = np.array(y)
+    
+    # 使用TF-IDF进行文本特征提取
+        from sklearn.feature_extraction.text import TfidfVectorizer
+        from sklearn.model_selection import train_test_split
+    
+        vectorizer = TfidfVectorizer(max_features=5000, stop_words='english')
+        X_tfidf = vectorizer.fit_transform(X)
+    
+        # 划分训练集和验证集
+        X_train, X_val, y_train, y_val = train_test_split(
+            X_tfidf, y, test_size=test_size, random_state=random_state, stratify=y
+        )
+    
+    # 创建模型对比目录
+        self.directory_comparison = self.directory_model / 'model_comparison'
+        self.directory_comparison.mkdir(parents=True, exist_ok=True)
+    
+    # 初始化模型对比
+        print("Initializing model comparison...")
+        from ModelEnsemble import ModelComparison
+        self.model_comparison = ModelComparison(X_train, y_train, X_val, y_val)
+        self.model_comparison.initialize_models()
+    
+    # 训练和评估模型
+        print("Training and evaluating multiple models...")
+        self.model_comparison.train_and_evaluate_models()
+    
+    # 可视化结果
+        print("Visualizing comparison results...")
+        self.model_comparison.visualize_results(save_dir=self.directory_comparison)
+    
+    # 保存对比结果
+        comparison_results_path = self.directory_comparison / 'comparison_results.pkl'
+        with open(comparison_results_path, 'wb') as f:
+            pickle.dump(self.model_comparison.results, f)
+        print(f"Model comparison results saved to {comparison_results_path}")
+    
+        return self.model_comparison
 
+#--------------------------------------------------
+    def create_ensemble_models(self):
+        """
+        创建集成学习模型
+        """
+        if not hasattr(self, 'model_comparison') or self.model_comparison is None:
+            print("Model comparison not performed. Running comparison first...")
+            self.compare_models()
+            if not hasattr(self, 'model_comparison') or self.model_comparison is None:
+                print("Cannot create ensemble: Model comparison failed.")
+                return
+        
+        # 创建集成学习目录
+        self.directory_ensemble = self.directory_comparison / 'ensemble_models'
+        self.directory_ensemble.mkdir(parents=True, exist_ok=True)
+        
+        # 初始化集成学习
+        print("Creating ensemble models...")
+        from ModelEnsemble import EnsembleLearning
+        self.ensemble_learning = EnsembleLearning(
+            self.model_comparison.results,
+            self.model_comparison.X_train,
+            self.model_comparison.y_train,
+            self.model_comparison.X_val,
+            self.model_comparison.y_val
+        )
+        
+        # 创建不同的集成方法
+        print("Creating voting ensemble...")
+        self.ensemble_learning.create_voting_ensemble(voting='soft')
+        
+        print("Creating stacking ensemble...")
+        self.ensemble_learning.create_stacking_ensemble()
+        
+        print("Creating blending ensemble...")
+        self.ensemble_learning.create_blending_ensemble()
+        
+        # 评估集成方法
+        print("Evaluating ensemble methods...")
+        self.ensemble_learning.evaluate_ensemble_methods()
+        
+        # 与基础模型对比
+        print("Comparing ensemble models with base models...")
+        self.ensemble_learning.compare_with_base_models()
+        
+        # 保存最佳模型
+        best_model_path = self.directory_ensemble / 'best_model.pkl'
+        self.ensemble_learning.save_best_model(save_path=best_model_path)
+        
+        # 为了与原有的模型对比结果兼容，保存scaler引用
+        self.ensemble_learning.model_comparison = self.model_comparison
+        
+        return self.ensemble_learning
+
+#---------------------
     def predict_with_classifier(self):
         if self.classifier is None:
             print("Classifier not created. Call create_classifier() first.")
