@@ -1,0 +1,16 @@
+=== Financial News Analysis Report ===
+
+Total news articles: 83340
+Date range: 2017-12-17 00:00:00 to 2020-07-18 00:00:00
+
+Data Sources:
+  integrated: 50570 articles
+  reuters: 32770 articles
+
+Sentiment Distribution:
+  negative: 31076 (37.3%)
+  positive: 30058 (36.1%)
+  neutral: 22206 (26.6%)
+
+Average sentiment score: -0.008
+Sentiment standard deviation: 0.438
